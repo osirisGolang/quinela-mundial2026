@@ -5,20 +5,24 @@
     <div class="row q-mb-md items-center">
       <q-select
         v-model="selectedTeam"
-        :options="teamOptions"
+        :options="filteredTeamOptions"
         option-value="iso2"
         option-label="name"
         emit-value
         map-options
+        use-input
+        input-debounce="0"
         label="Seleccionar Equipo"
         outlined
         dense
         clearable
         style="min-width: 350px;"
         class="col-12 col-md-6"
+        @filter="filterTeams"
+        @clear="selectedTeam = null"
       >
-        <template #option="{ item, opt }">
-          <q-item v-bind="item">
+        <template #option="{ itemProps, opt }">
+          <q-item v-bind="itemProps">
             <q-item-section avatar>
               <img :src="`https://flagcdn.com/w40/${opt.iso2}.png`" width="28" height="19" style="border-radius:2px;border:1px solid #ccc" />
             </q-item-section>
@@ -33,6 +37,11 @@
             <img :src="`https://flagcdn.com/w40/${opt.iso2}.png`" width="28" height="19" style="border-radius:2px;border:1px solid #ccc" />
             <span>{{ opt.name }}</span>
           </div>
+        </template>
+        <template #no-option>
+          <q-item>
+            <q-item-section class="text-grey">No se encontró el equipo</q-item-section>
+          </q-item>
         </template>
       </q-select>
 
@@ -135,6 +144,7 @@ const selectedTeam = ref(null)
 const loading = ref(false)
 const allTeams = ref([])
 const allMatches = ref([])
+const filteredTeamOptions = ref([])
 
 const pagination = ref({
   page: 1,
@@ -161,6 +171,19 @@ const teamOptions = computed(() => {
     iso2: t.iso2,
     group: t.group_name
   }))
+})
+
+function filterTeams(val, update) {
+  update(() => {
+    const needle = val.toLowerCase()
+    filteredTeamOptions.value = teamOptions.value.filter(
+      t => t.name.toLowerCase().includes(needle) || t.group.toLowerCase().includes(needle)
+    )
+  })
+}
+
+watch(allTeams, () => {
+  filteredTeamOptions.value = teamOptions.value
 })
 
 const filteredMatches = computed(() => {

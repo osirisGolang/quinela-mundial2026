@@ -3,7 +3,8 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"time"
+	"os"
+	"path/filepath"
 
 	_ "modernc.org/sqlite"
 )
@@ -11,6 +12,12 @@ import (
 var DB *sql.DB
 
 func Init(dbPath string) error {
+	if dir := filepath.Dir(dbPath); dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("error creating database directory: %w", err)
+		}
+	}
+
 	var err error
 	DB, err = sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -81,6 +88,12 @@ func createTables() error {
 			FOREIGN KEY (match_id) REFERENCES matches(id),
 			UNIQUE(user_id, match_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS prediction_locks (
+			user_id INTEGER PRIMARY KEY,
+			locked INTEGER DEFAULT 0,
+			locked_at TEXT,
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		)`,
 	}
 
 	for _, q := range queries {
@@ -104,103 +117,172 @@ func seedData() error {
 		DB.Exec("INSERT INTO groups (name) VALUES (?)", g)
 	}
 
+	// Equipos reales FIFA Mundial 2026 (datos oficiales)
+	// Grupos A-L con 4 equipos cada uno, IDs 1-48
 	teams := []struct {
-		Name      string
-		Code      string
-		ISO2      string
-		GroupID   int
-		IsHost    bool
+		Name    string
+		Code    string
+		ISO2    string
+		GroupID int
+		IsHost  bool
 	}{
-		{"Canada", "CAN", "ca", 1, true}, {"Mexico", "MEX", "mx", 1, true}, {"Argentina", "ARG", "ar", 1, false}, {"Peru", "PER", "pe", 1, false},
-		{"United States", "USA", "us", 2, true}, {"Brazil", "BRA", "br", 2, false}, {"Uruguay", "URU", "uy", 2, false}, {"Colombia", "COL", "co", 2, false},
-		{"Germany", "GER", "de", 3, false}, {"Spain", "ESP", "es", 3, false}, {"France", "FRA", "fr", 3, false}, {"Italy", "ITA", "it", 3, false},
-		{"England", "ENG", "gb-eng", 4, false}, {"Portugal", "POR", "pt", 4, false}, {"Netherlands", "NED", "nl", 4, false}, {"Belgium", "BEL", "be", 4, false},
-		{"Japan", "JPN", "jp", 5, false}, {"South Korea", "KOR", "kr", 5, false}, {"Iran", "IRN", "ir", 5, false}, {"Australia", "AUS", "au", 5, false},
-		{"Saudi Arabia", "KSA", "sa", 6, false}, {"Qatar", "QAT", "qa", 6, false}, {"UAE", "UAE", "ae", 6, false}, {"Iraq", "IRQ", "iq", 6, false},
-		{"Poland", "POL", "pl", 7, false}, {"Switzerland", "SUI", "ch", 7, false}, {"Croatia", "CRO", "hr", 7, false}, {"Denmark", "DEN", "dk", 7, false},
-		{"Sweden", "SWE", "se", 8, false}, {"Norway", "NOR", "no", 8, false}, {"Austria", "AUT", "at", 8, false}, {"Czech Republic", "CZE", "cz", 8, false},
-		{"Nigeria", "NGA", "ng", 9, false}, {"Cameroon", "CMR", "cm", 9, false}, {"Senegal", "SEN", "sn", 9, false}, {"Ghana", "GHA", "gh", 9, false},
-		{"Egypt", "EGY", "eg", 10, false}, {"Morocco", "MAR", "ma", 10, false}, {"Algeria", "ALG", "dz", 10, false}, {"Tunisia", "TUN", "tn", 10, false},
-		{"New Zealand", "NZL", "nz", 11, false}, {"Papua New Guinea", "PNG", "pg", 11, false}, {"Solomon Islands", "SOL", "sb", 11, false}, {"Fiji", "FIJ", "fj", 11, false},
-		{"China", "CHN", "cn", 12, false}, {"India", "IND", "in", 12, false}, {"Indonesia", "IDN", "id", 12, false}, {"Malaysia", "MAS", "my", 12, false},
+		// Grupo A (id=1)
+		{"México", "MEX", "mx", 1, true},
+		{"Sudáfrica", "RSA", "za", 1, false},
+		{"Corea del Sur", "KOR", "kr", 1, false},
+		{"República Checa", "CZE", "cz", 1, false},
+		// Grupo B (id=2)
+		{"Canadá", "CAN", "ca", 2, true},
+		{"Bosnia y Herzegovina", "BIH", "ba", 2, false},
+		{"Catar", "QAT", "qa", 2, false},
+		{"Suiza", "SUI", "ch", 2, false},
+		// Grupo C (id=3)
+		{"Brasil", "BRA", "br", 3, false},
+		{"Marruecos", "MAR", "ma", 3, false},
+		{"Haití", "HAI", "ht", 3, false},
+		{"Escocia", "SCO", "gb-sct", 3, false},
+		// Grupo D (id=4)
+		{"Estados Unidos", "USA", "us", 4, true},
+		{"Paraguay", "PAR", "py", 4, false},
+		{"Australia", "AUS", "au", 4, false},
+		{"Türkiye", "TUR", "tr", 4, false},
+		// Grupo E (id=5)
+		{"Alemania", "GER", "de", 5, false},
+		{"Curazao", "CUW", "cw", 5, false},
+		{"Costa de Marfil", "CIV", "ci", 5, false},
+		{"Ecuador", "ECU", "ec", 5, false},
+		// Grupo F (id=6)
+		{"Países Bajos", "NED", "nl", 6, false},
+		{"Japón", "JPN", "jp", 6, false},
+		{"Suecia", "SWE", "se", 6, false},
+		{"Túnez", "TUN", "tn", 6, false},
+		// Grupo G (id=7)
+		{"Bélgica", "BEL", "be", 7, false},
+		{"Egipto", "EGY", "eg", 7, false},
+		{"Irán", "IRN", "ir", 7, false},
+		{"Nueva Zelanda", "NZL", "nz", 7, false},
+		// Grupo H (id=8)
+		{"España", "ESP", "es", 8, false},
+		{"Cabo Verde", "CPV", "cv", 8, false},
+		{"Arabia Saudita", "KSA", "sa", 8, false},
+		{"Uruguay", "URU", "uy", 8, false},
+		// Grupo I (id=9)
+		{"Francia", "FRA", "fr", 9, false},
+		{"Senegal", "SEN", "sn", 9, false},
+		{"Irak", "IRQ", "iq", 9, false},
+		{"Noruega", "NOR", "no", 9, false},
+		// Grupo J (id=10)
+		{"Argentina", "ARG", "ar", 10, false},
+		{"Argelia", "ALG", "dz", 10, false},
+		{"Austria", "AUT", "at", 10, false},
+		{"Jordania", "JOR", "jo", 10, false},
+		// Grupo K (id=11)
+		{"Portugal", "POR", "pt", 11, false},
+		{"RD Congo", "COD", "cd", 11, false},
+		{"Uzbekistán", "UZB", "uz", 11, false},
+		{"Colombia", "COL", "co", 11, false},
+		// Grupo L (id=12)
+		{"Inglaterra", "ENG", "gb-eng", 12, false},
+		{"Croacia", "CRO", "hr", 12, false},
+		{"Ghana", "GHA", "gh", 12, false},
+		{"Panamá", "PAN", "pa", 12, false},
 	}
 
 	for _, t := range teams {
 		DB.Exec("INSERT INTO teams (name, short_code, iso2, group_id, is_host) VALUES (?, ?, ?, ?, ?)", t.Name, t.Code, t.ISO2, t.GroupID, t.IsHost)
 	}
 
-	loc, _ := time.LoadLocation("America/Mexico_City")
-
-	matches := []struct {
-		Num         int
-		Stage       string
-		GroupID     int
-		LocalTeamID int
-		VisitorID   int
-		Date        string
-	}{
-		{1, "group", 1, 1, 3, time.Date(2026, 6, 11, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {2, "group", 1, 2, 4, time.Date(2026, 6, 11, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{3, "group", 2, 5, 7, time.Date(2026, 6, 12, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {4, "group", 2, 6, 8, time.Date(2026, 6, 12, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{5, "group", 3, 9, 11, time.Date(2026, 6, 13, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {6, "group", 3, 10, 12, time.Date(2026, 6, 13, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{7, "group", 4, 13, 15, time.Date(2026, 6, 14, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {8, "group", 4, 14, 16, time.Date(2026, 6, 14, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{9, "group", 5, 17, 19, time.Date(2026, 6, 15, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {10, "group", 5, 18, 20, time.Date(2026, 6, 15, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{11, "group", 6, 21, 23, time.Date(2026, 6, 16, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {12, "group", 6, 22, 24, time.Date(2026, 6, 16, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{13, "group", 1, 1, 2, time.Date(2026, 6, 19, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {14, "group", 1, 4, 3, time.Date(2026, 6, 19, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{15, "group", 2, 6, 7, time.Date(2026, 6, 20, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {16, "group", 2, 8, 5, time.Date(2026, 6, 20, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{17, "group", 3, 9, 10, time.Date(2026, 6, 21, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {18, "group", 3, 12, 11, time.Date(2026, 6, 21, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{19, "group", 4, 13, 14, time.Date(2026, 6, 22, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {20, "group", 4, 16, 15, time.Date(2026, 6, 22, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{21, "group", 5, 17, 18, time.Date(2026, 6, 23, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {22, "group", 5, 20, 19, time.Date(2026, 6, 23, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{23, "group", 6, 21, 22, time.Date(2026, 6, 24, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {24, "group", 6, 24, 23, time.Date(2026, 6, 24, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{25, "group", 1, 3, 2, time.Date(2026, 6, 26, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {26, "group", 1, 1, 4, time.Date(2026, 6, 26, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{27, "group", 2, 7, 6, time.Date(2026, 6, 27, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {28, "group", 2, 5, 8, time.Date(2026, 6, 27, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{29, "group", 3, 11, 10, time.Date(2026, 6, 28, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {30, "group", 3, 9, 12, time.Date(2026, 6, 28, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{31, "group", 4, 15, 14, time.Date(2026, 6, 29, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {32, "group", 4, 13, 16, time.Date(2026, 6, 29, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{33, "group", 7, 25, 27, time.Date(2026, 6, 17, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {34, "group", 7, 26, 28, time.Date(2026, 6, 17, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{35, "group", 8, 29, 31, time.Date(2026, 6, 18, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {36, "group", 8, 30, 32, time.Date(2026, 6, 18, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{37, "group", 9, 33, 35, time.Date(2026, 6, 19, 14, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {38, "group", 9, 34, 36, time.Date(2026, 6, 19, 20, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{39, "group", 10, 37, 39, time.Date(2026, 6, 20, 14, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {40, "group", 10, 38, 40, time.Date(2026, 6, 20, 20, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{41, "group", 11, 41, 43, time.Date(2026, 6, 21, 14, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {42, "group", 11, 42, 44, time.Date(2026, 6, 21, 20, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{43, "group", 12, 45, 47, time.Date(2026, 6, 22, 14, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {44, "group", 12, 46, 48, time.Date(2026, 6, 22, 20, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{45, "group", 7, 27, 26, time.Date(2026, 6, 25, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {46, "group", 7, 28, 25, time.Date(2026, 6, 25, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{47, "group", 8, 31, 30, time.Date(2026, 6, 26, 14, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {48, "group", 8, 32, 29, time.Date(2026, 6, 26, 20, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{49, "group", 9, 35, 34, time.Date(2026, 6, 27, 14, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {50, "group", 9, 36, 33, time.Date(2026, 6, 27, 20, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{51, "group", 10, 39, 38, time.Date(2026, 6, 28, 14, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {52, "group", 10, 40, 37, time.Date(2026, 6, 28, 20, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{53, "group", 11, 43, 42, time.Date(2026, 6, 29, 14, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {54, "group", 11, 44, 41, time.Date(2026, 6, 29, 20, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{55, "group", 12, 47, 46, time.Date(2026, 6, 30, 14, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {56, "group", 12, 48, 45, time.Date(2026, 6, 30, 20, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{57, "group", 7, 25, 28, time.Date(2026, 7, 1, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {58, "group", 7, 27, 26, time.Date(2026, 7, 1, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{59, "group", 8, 29, 32, time.Date(2026, 7, 2, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {60, "group", 8, 31, 30, time.Date(2026, 7, 2, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{61, "group", 9, 33, 36, time.Date(2026, 7, 3, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {62, "group", 9, 35, 34, time.Date(2026, 7, 3, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{63, "group", 10, 37, 40, time.Date(2026, 7, 4, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {64, "group", 10, 39, 38, time.Date(2026, 7, 4, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{65, "group", 11, 41, 44, time.Date(2026, 7, 5, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {66, "group", 11, 43, 42, time.Date(2026, 7, 5, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
-		{67, "group", 12, 45, 48, time.Date(2026, 7, 6, 12, 0, 0, 0, loc).Format("2006-01-02 15:04")}, {68, "group", 12, 47, 46, time.Date(2026, 7, 6, 18, 0, 0, 0, loc).Format("2006-01-02 15:04")},
+	// 72 partidos de fase de grupos — datos oficiales FIFA Mundial 2026
+	// Team IDs: A(1-4), B(5-8), C(9-12), D(13-16), E(17-20), F(21-24),
+	//           G(25-28), H(29-32), I(33-36), J(37-40), K(41-44), L(45-48)
+	type matchSeed struct {
+		Num, Group, Local, Visitor int
+		Date, Venue, City          string
 	}
 
-	venues := map[int][2]string{
-		1: {"Estadio Azteca", "Ciudad de Mexico"}, 2: {"NRG Stadium", "Houston"}, 3: {"Rose Bowl", "Los Angeles"}, 4: {"MetLife Stadium", "Nueva York"},
-		5: {"Estadio Akron", "Guadalajara"}, 6: {"BMO Field", "Toronto"}, 7: {"Levi's Stadium", "San Francisco"}, 8: {"Lumen Field", "Seattle"},
-		9: {"AT&T Stadium", "Dallas"}, 10: {"SoFi Stadium", "Los Angeles"}, 11: {"GEODIS Park", "Nashville"}, 12: {"Mercedes-Benz Stadium", "Atlanta"},
-		13: {"Red Bull Arena", "Nueva Jersey"}, 14: {"Lincoln Financial Field", "Philadelphia"}, 15: {"Hard Rock Stadium", "Miami"}, 16: {"Gillette Stadium", "Boston"},
-		17: {"Arrowhead Stadium", "Kansas City"}, 18: {"Sports Authority Field", "Denver"}, 19: {"Allegiant Stadium", "Las Vegas"}, 20: {"State Farm Stadium", "Glendale"},
-		21: {"Emirates Stadium", "San Nicolas"}, 22: {"BC Place", "Vancouver"}, 23: {"Stade Montreal", "Montreal"}, 24: {"SAP Stadium", "San Jose"},
-		25: {"Estadio BBVA", "Monterrey"}, 26: {"Estadio Akron", "Guadalajara"}, 27: {"Estadio Azteca", "Ciudad de Mexico"}, 28: {"NRG Stadium", "Houston"},
-		29: {"Rose Bowl", "Los Angeles"}, 30: {"MetLife Stadium", "Nueva York"}, 31: {"AT&T Stadium", "Dallas"}, 32: {"SoFi Stadium", "Los Angeles"},
-		33: {"Levi's Stadium", "San Francisco"}, 34: {"Lumen Field", "Seattle"}, 35: {"BMO Field", "Toronto"}, 36: {"GEODIS Park", "Nashville"},
-		37: {"Hard Rock Stadium", "Miami"}, 38: {"Mercedes-Benz Stadium", "Atlanta"}, 39: {"Red Bull Arena", "Nueva Jersey"}, 40: {"Lincoln Financial Field", "Philadelphia"},
-		41: {"Arrowhead Stadium", "Kansas City"}, 42: {"Sports Authority Field", "Denver"}, 43: {"Allegiant Stadium", "Las Vegas"}, 44: {"State Farm Stadium", "Glendale"},
-		45: {"Emirates Stadium", "San Nicolas"}, 46: {"BC Place", "Vancouver"}, 47: {"Stade Montreal", "Montreal"}, 48: {"SAP Stadium", "San Jose"},
-		49: {"Gillette Stadium", "Boston"}, 50: {"Estadio BBVA", "Monterrey"}, 51: {"Estadio Akron", "Guadalajara"}, 52: {"Estadio Azteca", "Ciudad de Mexico"},
-		53: {"NRG Stadium", "Houston"}, 54: {"Rose Bowl", "Los Angeles"}, 55: {"MetLife Stadium", "Nueva York"}, 56: {"AT&T Stadium", "Dallas"},
-		57: {"SoFi Stadium", "Los Angeles"}, 58: {"Levi's Stadium", "San Francisco"}, 59: {"Lumen Field", "Seattle"}, 60: {"BMO Field", "Toronto"},
-		61: {"GEODIS Park", "Nashville"}, 62: {"Hard Rock Stadium", "Miami"}, 63: {"Mercedes-Benz Stadium", "Atlanta"}, 64: {"Red Bull Arena", "Nueva Jersey"},
-		65: {"Lincoln Financial Field", "Philadelphia"}, 66: {"Arrowhead Stadium", "Kansas City"}, 67: {"Sports Authority Field", "Denver"}, 68: {"Allegiant Stadium", "Las Vegas"},
+	matches := []matchSeed{
+		// ── Jornada 1 ──────────────────────────────────────────────────────
+		{1, 1, 1, 2, "2026-06-11 13:00", "Estadio Azteca", "Ciudad de México"},
+		{2, 1, 3, 4, "2026-06-11 20:00", "Estadio Akron", "Zapopan"},
+		{3, 2, 5, 6, "2026-06-12 15:00", "BMO Field", "Toronto"},
+		{4, 4, 13, 14, "2026-06-12 18:00", "SoFi Stadium", "Inglewood"},
+		{5, 3, 11, 12, "2026-06-13 21:00", "Gillette Stadium", "Foxborough"},
+		{6, 4, 15, 16, "2026-06-13 21:00", "BC Place", "Vancouver"},
+		{7, 3, 9, 10, "2026-06-13 18:00", "MetLife Stadium", "East Rutherford"},
+		{8, 2, 7, 8, "2026-06-13 12:00", "Levi's Stadium", "Santa Clara"},
+		{9, 5, 19, 20, "2026-06-14 19:00", "Lincoln Financial Field", "Filadelfia"},
+		{10, 5, 17, 18, "2026-06-14 12:00", "NRG Stadium", "Houston"},
+		{11, 6, 21, 22, "2026-06-14 15:00", "AT&T Stadium", "Arlington"},
+		{12, 6, 23, 24, "2026-06-14 20:00", "Estadio BBVA", "Guadalupe"},
+		{13, 8, 31, 32, "2026-06-15 18:00", "Hard Rock Stadium", "Miami Gardens"},
+		{14, 8, 29, 30, "2026-06-15 12:00", "Mercedes-Benz Stadium", "Atlanta"},
+		{15, 7, 27, 28, "2026-06-15 18:00", "SoFi Stadium", "Inglewood"},
+		{16, 7, 25, 26, "2026-06-15 12:00", "Lumen Field", "Seattle"},
+		{17, 9, 33, 34, "2026-06-16 20:00", "Arrowhead Stadium", "Kansas City"},
+		{18, 10, 39, 40, "2026-06-16 21:00", "Levi's Stadium", "Santa Clara"},
+		{19, 10, 37, 38, "2026-06-16 20:00", "Arrowhead Stadium", "Kansas City"},
+		{20, 9, 35, 36, "2026-06-16 21:00", "Levi's Stadium", "Santa Clara"},
+		{21, 12, 47, 48, "2026-06-17 19:00", "BMO Field", "Toronto"},
+		{22, 12, 45, 46, "2026-06-17 15:00", "AT&T Stadium", "Arlington"},
+		{23, 11, 41, 42, "2026-06-17 12:00", "NRG Stadium", "Houston"},
+		{24, 11, 43, 44, "2026-06-17 20:00", "Estadio Azteca", "Ciudad de México"},
+		// ── Jornada 2 ──────────────────────────────────────────────────────
+		{25, 1, 4, 2, "2026-06-18 12:00", "Mercedes-Benz Stadium", "Atlanta"},
+		{26, 2, 8, 6, "2026-06-18 12:00", "SoFi Stadium", "Inglewood"},
+		{27, 2, 5, 7, "2026-06-18 15:00", "BC Place", "Vancouver"},
+		{28, 1, 1, 3, "2026-06-18 19:00", "Estadio Akron", "Zapopan"},
+		{29, 3, 9, 11, "2026-06-19 20:30", "Lincoln Financial Field", "Filadelfia"},
+		{30, 3, 12, 10, "2026-06-19 18:00", "Gillette Stadium", "Foxborough"},
+		{31, 4, 16, 14, "2026-06-19 20:00", "Levi's Stadium", "Santa Clara"},
+		{32, 4, 13, 15, "2026-06-19 12:00", "Lumen Field", "Seattle"},
+		{33, 5, 17, 19, "2026-06-20 16:00", "BMO Field", "Toronto"},
+		{34, 5, 20, 18, "2026-06-20 19:00", "Arrowhead Stadium", "Kansas City"},
+		{35, 6, 21, 23, "2026-06-20 12:00", "NRG Stadium", "Houston"},
+		{36, 6, 24, 22, "2026-06-20 22:00", "Estadio BBVA", "Guadalupe"},
+		{37, 8, 32, 30, "2026-06-21 18:00", "Hard Rock Stadium", "Miami Gardens"},
+		{38, 8, 29, 31, "2026-06-21 12:00", "Mercedes-Benz Stadium", "Atlanta"},
+		{39, 7, 25, 27, "2026-06-21 12:00", "SoFi Stadium", "Inglewood"},
+		{40, 7, 28, 26, "2026-06-21 18:00", "BC Place", "Vancouver"},
+		{41, 9, 36, 34, "2026-06-21 18:00", "Hard Rock Stadium", "Miami Gardens"},
+		{42, 9, 33, 35, "2026-06-21 20:00", "Hard Rock Stadium", "Miami Gardens"},
+		{43, 10, 37, 39, "2026-06-22 12:00", "AT&T Stadium", "Arlington"},
+		{44, 10, 40, 38, "2026-06-22 20:00", "Levi's Stadium", "Santa Clara"},
+		{45, 12, 45, 47, "2026-06-23 16:00", "Gillette Stadium", "Foxborough"},
+		{46, 12, 48, 46, "2026-06-23 19:00", "BMO Field", "Toronto"},
+		{47, 11, 41, 43, "2026-06-23 12:00", "NRG Stadium", "Houston"},
+		{48, 11, 44, 42, "2026-06-23 20:00", "Estadio Akron", "Zapopan"},
+		// ── Jornada 3 ──────────────────────────────────────────────────────
+		{49, 3, 12, 9, "2026-06-24 18:00", "Hard Rock Stadium", "Miami Gardens"},
+		{50, 3, 10, 11, "2026-06-24 18:00", "Mercedes-Benz Stadium", "Atlanta"},
+		{51, 2, 8, 5, "2026-06-24 12:00", "BC Place", "Vancouver"},
+		{52, 2, 6, 7, "2026-06-24 12:00", "Lumen Field", "Seattle"},
+		{53, 1, 4, 1, "2026-06-24 19:00", "Estadio Azteca", "Ciudad de México"},
+		{54, 1, 2, 3, "2026-06-24 19:00", "Estadio BBVA", "Guadalupe"},
+		{55, 5, 18, 19, "2026-06-25 16:00", "Lincoln Financial Field", "Filadelfia"},
+		{56, 5, 20, 17, "2026-06-25 16:00", "MetLife Stadium", "East Rutherford"},
+		{57, 6, 22, 23, "2026-06-25 18:00", "AT&T Stadium", "Arlington"},
+		{58, 6, 24, 21, "2026-06-25 18:00", "Arrowhead Stadium", "Kansas City"},
+		{59, 4, 16, 13, "2026-06-25 19:00", "SoFi Stadium", "Inglewood"},
+		{60, 4, 14, 15, "2026-06-25 19:00", "Levi's Stadium", "Santa Clara"},
+		{61, 9, 36, 33, "2026-06-26 20:00", "Hard Rock Stadium", "Miami Gardens"},
+		{62, 9, 34, 35, "2026-06-26 20:00", "Hard Rock Stadium", "Miami Gardens"},
+		{63, 7, 26, 27, "2026-06-26 20:00", "Lumen Field", "Seattle"},
+		{64, 7, 28, 25, "2026-06-26 20:00", "BC Place", "Vancouver"},
+		{65, 8, 30, 31, "2026-06-26 19:00", "NRG Stadium", "Houston"},
+		{66, 8, 32, 29, "2026-06-26 18:00", "Estadio Akron", "Zapopan"},
+		{67, 12, 48, 45, "2026-06-27 17:00", "MetLife Stadium", "East Rutherford"},
+		{68, 12, 46, 47, "2026-06-27 17:00", "Lincoln Financial Field", "Filadelfia"},
+		{69, 10, 38, 39, "2026-06-27 21:00", "Arrowhead Stadium", "Kansas City"},
+		{70, 10, 40, 37, "2026-06-27 21:00", "AT&T Stadium", "Arlington"},
+		{71, 11, 44, 41, "2026-06-27 19:30", "Hard Rock Stadium", "Miami Gardens"},
+		{72, 11, 42, 43, "2026-06-27 19:30", "Mercedes-Benz Stadium", "Atlanta"},
 	}
 
 	for _, m := range matches {
-		venue := venues[m.Num]
-		DB.Exec(`INSERT INTO matches (match_number, stage, group_id, local_team_id, visitor_team_id, match_date, venue, city, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`, m.Num, m.Stage, m.GroupID, m.LocalTeamID, m.VisitorID, m.Date, venue[0], venue[1])
+		DB.Exec(`INSERT INTO matches (match_number, stage, group_id, local_team_id, visitor_team_id, match_date, venue, city, status)
+			VALUES (?, 'group', ?, ?, ?, ?, ?, ?, 'pending')`,
+			m.Num, m.Group, m.Local, m.Visitor, m.Date, m.Venue, m.City)
 	}
-
-	DB.Exec(`INSERT INTO users (username, password_hash, is_admin) VALUES ('admin', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZRGdjGj/n3.RsJ3zY7B9eYlT5l4mK', 1)`)
 
 	return nil
 }

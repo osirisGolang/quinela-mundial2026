@@ -87,9 +87,11 @@
                       <span class="text-weight-medium">{{ props.row.local_team }}</span>
                     </div>
                   </q-td>
+                  <!-- Gol local -->
                   <q-td class="text-center">
-                    <div v-if="props.row.status === 'finished'" class="text-h6 text-weight-bold">
-                      {{ props.row.local_score }}
+                    <div v-if="props.row.status === 'finished' && !editingRows[props.row.id]"
+                         class="text-h5 text-weight-bold text-positive" style="min-width:36px">
+                      {{ scores[props.row.id]?.local_score ?? props.row.local_score ?? '-' }}
                     </div>
                     <q-input
                       v-else
@@ -98,14 +100,17 @@
                       min="0"
                       dense
                       outlined
-                      style="width: 55px;"
+                      style="width: 62px;"
+                      input-class="text-center text-weight-bold"
                       @update:model-value="markDirty(props.row.id)"
                     />
                   </q-td>
-                  <q-td class="text-center text-h5 text-grey-5">-</q-td>
+                  <q-td class="text-center text-h5 text-grey-5 text-weight-bold">:</q-td>
+                  <!-- Gol visitante -->
                   <q-td class="text-center">
-                    <div v-if="props.row.status === 'finished'" class="text-h6 text-weight-bold">
-                      {{ props.row.visitor_score }}
+                    <div v-if="props.row.status === 'finished' && !editingRows[props.row.id]"
+                         class="text-h5 text-weight-bold text-positive" style="min-width:36px">
+                      {{ scores[props.row.id]?.visitor_score ?? props.row.visitor_score ?? '-' }}
                     </div>
                     <q-input
                       v-else
@@ -114,7 +119,8 @@
                       min="0"
                       dense
                       outlined
-                      style="width: 55px;"
+                      style="width: 62px;"
+                      input-class="text-center text-weight-bold"
                       @update:model-value="markDirty(props.row.id)"
                     />
                   </q-td>
@@ -129,19 +135,36 @@
                     <div class="text-caption text-grey-6">{{ props.row.city }}</div>
                   </q-td>
                   <q-td class="text-center">
-                    <div v-if="props.row.status === 'finished'">
+                    <!-- Finalizado y sin editar -->
+                    <div v-if="props.row.status === 'finished' && !editingRows[props.row.id]" class="row no-wrap items-center justify-center q-gutter-xs">
                       <q-icon name="check_circle" color="positive" size="sm" />
+                      <q-btn flat round dense icon="edit" color="warning" size="sm" @click="startEdit(props.row)">
+                        <q-tooltip>Corregir resultado</q-tooltip>
+                      </q-btn>
                     </div>
+                    <!-- Finalizado en modo edición -->
+                    <div v-else-if="props.row.status === 'finished' && editingRows[props.row.id]" class="row no-wrap items-center justify-center q-gutter-xs">
+                      <q-btn color="positive" icon="save" size="sm" round dense
+                        @click="confirmSave(props.row)" :loading="saving === props.row.id">
+                        <q-tooltip>Guardar corrección</q-tooltip>
+                      </q-btn>
+                      <q-btn flat round dense icon="close" color="negative" size="sm" @click="cancelEdit(props.row)">
+                        <q-tooltip>Cancelar</q-tooltip>
+                      </q-btn>
+                    </div>
+                    <!-- Pendiente con datos para guardar -->
                     <q-btn
-                      v-else-if="dirtyRows.has(props.row.id)"
+                      v-else-if="dirtyRows[props.row.id]"
                       color="positive"
                       icon="save"
+                      label="Guardar"
                       size="sm"
-                      round
                       dense
-                      @click="saveResult(props.row)"
+                      unelevated
+                      @click="confirmSave(props.row)"
                       :loading="saving === props.row.id"
                     />
+                    <!-- Pendiente sin datos -->
                     <div v-else>
                       <q-icon name="radio_button_unchecked" color="grey-4" size="sm" />
                     </div>
@@ -213,13 +236,20 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import axios from 'axios'
+import { useQuasar } from 'quasar'
+import { useAuthStore } from '../stores/auth'
 
+const $q = useQuasar()
+const auth = useAuthStore()
 const tab = ref('A')
 const groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']
 const loading = ref(false)
 const saving = ref(null)
-const dirtyRows = ref(new Set())
+// Usar objetos reactivos en lugar de Set para que Vue detecte cambios
+const dirtyRows = reactive({})   // { [matchId]: true }
+const editingRows = reactive({}) // { [matchId]: true }
 const scores = reactive({})
+const editSnapshot = reactive({})
 const teamsData = ref({})
 const matchesData = ref([])
 
@@ -312,7 +342,51 @@ const computedStandings = computed(() => {
 })
 
 function markDirty(id) {
-  dirtyRows.value.add(id)
+  dirtyRows[id] = true
+}
+
+function startEdit(match) {
+  // Guardar snapshot y precargar inputs con los valores actuales guardados en BD
+  const ls = scores[match.id]?.local_score ?? match.local_score ?? 0
+  const vs = scores[match.id]?.visitor_score ?? match.visitor_score ?? 0
+  editSnapshot[match.id] = { local_score: ls, visitor_score: vs }
+  scores[match.id] = { local_score: ls, visitor_score: vs }
+  editingRows[match.id] = true
+}
+
+function cancelEdit(match) {
+  if (editSnapshot[match.id]) {
+    scores[match.id] = {
+      local_score: editSnapshot[match.id].local_score,
+      visitor_score: editSnapshot[match.id].visitor_score,
+    }
+    delete editSnapshot[match.id]
+  }
+  delete editingRows[match.id]
+  delete dirtyRows[match.id]
+}
+
+function confirmSave(match) {
+  const ls = scores[match.id]?.local_score
+  const vs = scores[match.id]?.visitor_score
+  // Validar: debe ser número >= 0 (incluyendo 0 que es falsy)
+  const lsOk = ls !== null && ls !== undefined && ls !== '' && !isNaN(Number(ls)) && Number(ls) >= 0
+  const vsOk = vs !== null && vs !== undefined && vs !== '' && !isNaN(Number(vs)) && Number(vs) >= 0
+  if (!lsOk || !vsOk) {
+    $q.notify({ type: 'warning', message: 'Ingresa el marcador completo (puede ser 0)' })
+    return
+  }
+  const isCorrection = match.status === 'finished'
+  $q.dialog({
+    title: isCorrection ? '⚠️ Corregir resultado' : 'Confirmar resultado',
+    message: isCorrection
+      ? `¿Estás seguro de corregir el resultado de <b>${match.local_team} vs ${match.visitor_team}</b> a <b>${ls} - ${vs}</b>?<br/><br/>Se recalcularán los puntos de todos los pronósticos.`
+      : `¿Guardar el resultado <b>${match.local_team} ${ls} - ${vs} ${match.visitor_team}</b>?`,
+    html: true,
+    ok: { label: isCorrection ? 'Sí, corregir' : 'Guardar', color: isCorrection ? 'warning' : 'positive', unelevated: true },
+    cancel: { label: 'Cancelar', flat: true },
+    persistent: true,
+  }).onOk(() => saveResult(match))
 }
 
 async function saveResult(match) {
@@ -323,12 +397,18 @@ async function saveResult(match) {
     saving.value = match.id
     await axios.post('http://localhost:8080/api/results', {
       match_id: match.id,
-      local_score: ls,
-      visitor_score: vs
+      local_score: Number(ls),
+      visitor_score: Number(vs)
+    }, {
+      headers: { Authorization: auth.token }
     })
+    delete editingRows[match.id]
+    delete editSnapshot[match.id]
+    delete dirtyRows[match.id]
     await refreshAll()
-    dirtyRows.value.delete(match.id)
+    $q.notify({ type: 'positive', message: `Resultado guardado: ${match.local_team} ${ls} - ${vs} ${match.visitor_team}` })
   } catch (e) {
+    $q.notify({ type: 'negative', message: 'Error al guardar el resultado' })
     console.error('Error saving result:', e)
   } finally {
     saving.value = null
@@ -345,7 +425,7 @@ async function refreshAll() {
     teamsData.value = groupsRes.data
     matchesData.value = matchesRes.data
     for (const m of matchesRes.data) {
-      if (!scores[m.id]) {
+      if (!editingRows[m.id]) {
         scores[m.id] = { local_score: m.local_score ?? '', visitor_score: m.visitor_score ?? '' }
       }
     }

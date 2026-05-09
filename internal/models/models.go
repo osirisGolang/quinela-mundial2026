@@ -57,39 +57,41 @@ type Standing struct {
 	TotalPoints int    `json:"total_points"`
 	ExactScore  int    `json:"exact_score"`
 	ResultOnly  int    `json:"result_only"`
+	Wrong       int    `json:"wrong"`
+	PredCount   int    `json:"pred_count"`
 }
 
 type GroupStanding struct {
-	TeamID     uint   `json:"team_id"`
-	TeamName   string `json:"team_name"`
-	ISO2       string `json:"iso2"`
-	IsHost     bool   `json:"is_host"`
-	PJ         int    `json:"pj"`
-	G          int    `json:"g"`
-	E          int    `json:"e"`
-	P          int    `json:"p"`
-	GF         int    `json:"gf"`
-	GC         int    `json:"gc"`
-	DG         int    `json:"dg"`
-	Pts        int    `json:"pts"`
-	Position   int    `json:"position"`
+	TeamID   uint   `json:"team_id"`
+	TeamName string `json:"team_name"`
+	ISO2     string `json:"iso2"`
+	IsHost   bool   `json:"is_host"`
+	PJ       int    `json:"pj"`
+	G        int    `json:"g"`
+	E        int    `json:"e"`
+	P        int    `json:"p"`
+	GF       int    `json:"gf"`
+	GC       int    `json:"gc"`
+	DG       int    `json:"dg"`
+	Pts      int    `json:"pts"`
+	Position int    `json:"position"`
 }
 
 type TeamStandings struct {
-	TeamID     uint   `json:"team_id"`
-	TeamName   string `json:"team_name"`
-	ISO2       string `json:"iso2"`
-	GroupName  string `json:"group_name"`
-	IsHost     bool   `json:"is_host"`
-	PJ         int    `json:"pj"`
-	G          int    `json:"g"`
-	E          int    `json:"e"`
-	P          int    `json:"p"`
-	GF         int    `json:"gf"`
-	GC         int    `json:"gc"`
-	DG         int    `json:"dg"`
-	Pts        int    `json:"pts"`
-	Position   int    `json:"position"`
+	TeamID    uint   `json:"team_id"`
+	TeamName  string `json:"team_name"`
+	ISO2      string `json:"iso2"`
+	GroupName string `json:"group_name"`
+	IsHost    bool   `json:"is_host"`
+	PJ        int    `json:"pj"`
+	G         int    `json:"g"`
+	E         int    `json:"e"`
+	P         int    `json:"p"`
+	GF        int    `json:"gf"`
+	GC        int    `json:"gc"`
+	DG        int    `json:"dg"`
+	Pts       int    `json:"pts"`
+	Position  int    `json:"position"`
 }
 
 type SaveResultRequest struct {
