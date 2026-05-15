@@ -18,6 +18,7 @@ import LoginView from './views/LoginView.vue'
 import RegisterView from './views/RegisterView.vue'
 import PredictionsView from './views/PredictionsView.vue'
 import UsersView from './views/UsersView.vue'
+import AdminPredictionsView from './views/AdminPredictionsView.vue'
 
 const routes = [
   { path: '/', component: HomeView },
@@ -29,6 +30,7 @@ const routes = [
   { path: '/register', component: RegisterView },
   { path: '/predictions', component: PredictionsView, meta: { requiresAuth: true } },
   { path: '/users', component: UsersView, meta: { requiresAdmin: true } },
+  { path: '/admin-predictions', component: AdminPredictionsView, meta: { requiresAdmin: true } },
 ]
 
 const pinia = createPinia()

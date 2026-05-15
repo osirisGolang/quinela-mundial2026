@@ -149,25 +149,7 @@
               <q-btn flat round dense icon="key" color="orange-7" size="sm" @click="openPasswordDialog(props.row)">
                 <q-tooltip>Cambiar contraseña</q-tooltip>
               </q-btn>
-              <q-btn
-                flat round dense
-                :icon="props.row.locked ? 'lock_open' : 'lock'"
-                :color="props.row.locked ? 'positive' : 'warning'"
-                size="sm"
-                @click="toggleLock(props.row)"
-              >
-                <q-tooltip>{{ props.row.locked ? 'Desbloquear compromiso' : 'Cerrar compromiso' }}</q-tooltip>
-              </q-btn>
-              <q-btn
-                flat round dense
-                :icon="props.row.is_admin ? 'admin_panel_settings' : 'person'"
-                :color="props.row.is_admin ? 'amber-8' : 'blue-grey-5'"
-                size="sm"
-                :disable="props.row.id === auth.user.id"
-                @click="toggleAdmin(props.row)"
-              >
-                <q-tooltip>{{ props.row.is_admin ? 'Quitar privilegios de administrador' : 'Hacer administrador' }}</q-tooltip>
-              </q-btn>
+            
               <q-btn
                 flat round dense icon="delete" color="negative" size="sm"
                 :disable="props.row.id === auth.user.id"

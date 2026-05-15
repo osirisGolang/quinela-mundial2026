@@ -1169,6 +1169,145 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, 200, map[string]string{"message": "Usuario eliminado"})
 }
 
+// GetAllUsersPredictions devuelve todos los partidos con los pronósticos de todos los usuarios (solo admin)
+func GetAllUsersPredictions(w http.ResponseWriter, r *http.Request) {
+	// 1. Obtener todos los usuarios
+	userRows, err := database.DB.Query("SELECT id, username FROM users ORDER BY username")
+	if err != nil {
+		respondJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	defer userRows.Close()
+
+	type UserInfo struct {
+		ID       uint   `json:"id"`
+		Username string `json:"username"`
+	}
+	var users []UserInfo
+	for userRows.Next() {
+		var u UserInfo
+		userRows.Scan(&u.ID, &u.Username)
+		users = append(users, u)
+	}
+
+	// 2. Obtener todos los partidos de fase de grupos
+	matchRows, err := database.DB.Query(`
+		SELECT m.id, m.match_number, m.group_id, g.name,
+			t1.name, t1.iso2, t2.name, t2.iso2,
+			m.match_date, m.local_score, m.visitor_score, m.status
+		FROM matches m
+		JOIN groups g ON m.group_id = g.id
+		JOIN teams t1 ON m.local_team_id = t1.id
+		JOIN teams t2 ON m.visitor_team_id = t2.id
+		WHERE m.stage = 'group'
+		ORDER BY m.group_id, m.match_number
+	`)
+	if err != nil {
+		respondJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	defer matchRows.Close()
+
+	type MatchInfo struct {
+		ID          uint   `json:"id"`
+		MatchNumber int    `json:"match_number"`
+		GroupID     int    `json:"group_id"`
+		GroupName   string `json:"group_name"`
+		LocalTeam   string `json:"local_team"`
+		LocalISO2   string `json:"local_iso2"`
+		VisitorTeam string `json:"visitor_team"`
+		VisitorISO2 string `json:"visitor_iso2"`
+		MatchDate   string `json:"match_date"`
+		RealLocal   *int   `json:"real_local"`
+		RealVisitor *int   `json:"real_visitor"`
+		Status      string `json:"status"`
+	}
+	var matches []MatchInfo
+	for matchRows.Next() {
+		var m MatchInfo
+		var rl, rv *int
+		matchRows.Scan(&m.ID, &m.MatchNumber, &m.GroupID, &m.GroupName,
+			&m.LocalTeam, &m.LocalISO2, &m.VisitorTeam, &m.VisitorISO2,
+			&m.MatchDate, &rl, &rv, &m.Status)
+		m.RealLocal = rl
+		m.RealVisitor = rv
+		matches = append(matches, m)
+	}
+
+	// 3. Obtener todos los pronósticos en un solo query
+	predRows, err := database.DB.Query(`
+		SELECT user_id, match_id, local_score, visitor_score, points
+		FROM predictions
+	`)
+	if err != nil {
+		respondJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	defer predRows.Close()
+
+	type PredKey struct{ UserID, MatchID uint }
+	type PredVal struct {
+		Local, Visitor int
+	}
+	preds := make(map[PredKey]PredVal)
+	for predRows.Next() {
+		var uid, mid uint
+		var ls, vs, pts int
+		predRows.Scan(&uid, &mid, &ls, &vs, &pts)
+		_ = pts // puntos se calculan dinámicamente abajo
+		preds[PredKey{uid, mid}] = PredVal{ls, vs}
+	}
+
+	// 4. Construir respuesta
+	type PredEntry struct {
+		Local   *int `json:"local"`
+		Visitor *int `json:"visitor"`
+		Points  *int `json:"points"`
+	}
+	type MatchRow struct {
+		MatchInfo
+		Predictions map[string]PredEntry `json:"predictions"` // username -> pred
+	}
+
+	var result []MatchRow
+	for _, m := range matches {
+		row := MatchRow{MatchInfo: m, Predictions: make(map[string]PredEntry)}
+		for _, u := range users {
+			if p, ok := preds[PredKey{u.ID, m.ID}]; ok {
+				ls, vs := p.Local, p.Visitor
+				var pts *int
+				if m.Status == "finished" && m.RealLocal != nil && m.RealVisitor != nil {
+					var computed int
+					rl, rv := *m.RealLocal, *m.RealVisitor
+					if ls == rl && vs == rv {
+						computed = 3
+					} else {
+						predSign := ls - vs
+						realSign := rl - rv
+						if (predSign > 0 && realSign > 0) ||
+							(predSign < 0 && realSign < 0) ||
+							(predSign == 0 && realSign == 0) {
+							computed = 1
+						} else {
+							computed = 0
+						}
+					}
+					pts = &computed
+				}
+				row.Predictions[u.Username] = PredEntry{&ls, &vs, pts}
+			} else {
+				row.Predictions[u.Username] = PredEntry{nil, nil, nil}
+			}
+		}
+		result = append(result, row)
+	}
+
+	respondJSON(w, 200, map[string]any{
+		"users":   users,
+		"matches": result,
+	})
+}
+
 func runAPIServer(port string) {
 	mux := http.NewServeMux()
 
@@ -1221,6 +1360,16 @@ func runAPIServer(port string) {
 	mux.HandleFunc("/api/predictions/import", enableCORS(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			ImportPredictionsExcel(w, r)
+		}
+	}))
+
+	mux.HandleFunc("/api/admin/predictions", enableCORS(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			if !requireAdmin(r) {
+				respondJSON(w, 403, map[string]string{"error": "Acceso denegado"})
+				return
+			}
+			GetAllUsersPredictions(w, r)
 		}
 	}))
 

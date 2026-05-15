@@ -82,6 +82,10 @@
             <q-icon name="manage_accounts" color="amber-8" />
           </q-item-section>
           <q-item-section class="text-weight-medium">Gestión de Usuarios</q-item-section>
+        </q-item>
+        <q-item v-if="auth.isAdmin" clickable v-ripple to="/admin-predictions">
+          <q-item-section avatar><q-icon name="table_view" color="primary" /></q-item-section>
+          <q-item-section class="text-weight-medium">Pronósticos de Usuarios</q-item-section>
           <q-item-section side>
             <q-badge color="amber-8" label="Admin" text-color="black" />
           </q-item-section>
